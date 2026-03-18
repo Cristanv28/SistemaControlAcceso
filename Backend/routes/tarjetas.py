@@ -3,15 +3,9 @@ from database import get_cursor
 
 tarjetas_bp = Blueprint("tarjetas", __name__)
 
-# ──────────────────────────────────────────
-#  Estado en memoria del modo registro
-# ──────────────────────────────────────────
 _modo_registro = {"activo": False, "id_usuario": None}
 
 
-# ──────────────────────────────────────────
-#  GET /tarjetas  →  listado completo
-# ──────────────────────────────────────────
 @tarjetas_bp.route("/tarjetas")
 def tarjetas():
     conn, cur = get_cursor()
@@ -53,21 +47,10 @@ def tarjetas():
     conn.close()
     return jsonify(data)
 
-
-# ──────────────────────────────────────────
-#  GET /tarjetas/modo-registro
-#  Consulta si está activo el modo registro
-# ──────────────────────────────────────────
 @tarjetas_bp.route("/tarjetas/modo-registro", methods=["GET"])
 def get_modo_registro():
     return jsonify(_modo_registro)
 
-
-# ──────────────────────────────────────────
-#  POST /tarjetas/modo-registro
-#  Activa el modo registro para un usuario
-#  Body: { "id_usuario": 5 }   o  { "activo": false } para cancelar
-# ──────────────────────────────────────────
 @tarjetas_bp.route("/tarjetas/modo-registro", methods=["POST"])
 def set_modo_registro():
     data = request.json or {}
@@ -101,12 +84,6 @@ def set_modo_registro():
     })
 
 
-# ──────────────────────────────────────────
-#  POST /tarjetas/registrar-uid
-#  El ESP32 llama este endpoint cuando detecta
-#  una tarjeta en modo registro
-#  Body: { "uid_rfid": "AABBCCDD" }
-# ──────────────────────────────────────────
 @tarjetas_bp.route("/tarjetas/registrar-uid", methods=["POST"])
 def registrar_uid():
     if not _modo_registro["activo"] or not _modo_registro["id_usuario"]:
@@ -173,11 +150,6 @@ def registrar_uid():
         conn.close()
         return jsonify({"error": str(e)}), 500
 
-
-# ──────────────────────────────────────────
-#  GET /tarjetas/usuarios-sin-tarjeta
-#  Lista usuarios que NO tienen tarjeta activa
-# ──────────────────────────────────────────
 @tarjetas_bp.route("/tarjetas/usuarios-sin-tarjeta")
 def usuarios_sin_tarjeta():
     conn, cur = get_cursor()
