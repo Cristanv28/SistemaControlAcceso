@@ -1,0 +1,47 @@
+====================================================
+  SISTEMA DE CONTROL DE ACCESO — INSTRUCCIONES
+====================================================
+
+1. BASE DE DATOS
+   Ejecuta el archivo setup_configuracion.sql en tu
+   base de datos Railway (una sola vez).
+
+2. BACKEND (Flask)
+   cd Backend
+   python app.py
+   → Corre en http://localhost:5000
+
+3. FRONTEND
+   En otra terminal, desde la carpeta Frontend:
+   python -m http.server 8080
+   → Abre http://localhost:8080/index.html
+
+4. ARCHIVOS QUE DEBES AGREGAR TÚ
+   - Frontend/css/style.css  (tu CSS original)
+   - Frontend/img/Logo.png   (tu logo)
+
+5. ESTRUCTURA
+   SCA/
+   ├── Backend/
+   │   ├── app.py
+   │   ├── database.py
+   │   └── routes/
+   │       ├── dashboard.py      ← /dashboard/stats + /dashboard/actividad
+   │       ├── estudiantes.py    ← GET POST PUT DELETE
+   │       ├── docentes.py       ← GET PUT DELETE (docentes y administrativos)
+   │       ├── empleados.py      ← GET PUT DELETE
+   │       ├── tarjetas.py       ← GET
+   │       ├── historial.py      ← GET con filtros
+   │       ├── acceso.py         ← POST verificar tarjeta
+   │       ├── access_control.py ← GET POST (guarda en BD)
+   │       └── emergency.py      ← GET POST DELETE (guarda en BD)
+   └── Frontend/
+       ├── index.html
+       ├── Usuarios.html
+       ├── tarjetas.html
+       ├── history.html
+       └── js/
+           ├── script.js     ← dashboard, emergencia, control de acceso
+           ├── usuarios.js   ← tablas, editar, eliminar, registrar, filtros
+           ├── tarjetas.js   ← tabla con filtros
+           └── history.js    ← historial con filtros y export Excel
