@@ -26,4 +26,4 @@ app.register_blueprint(access_bp)
 app.register_blueprint(emergency_bp)   # ← REGISTRO
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)
