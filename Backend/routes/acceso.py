@@ -43,25 +43,24 @@ def verificar():
         return jsonify({"error": "No se recibieron datos"}), 400
 
     uid         = data.get("uid_rfid")
-    tipo_evento = data.get("tipo_evento")   # "entrada" | "salida"
+    tipo_evento = data.get("tipo_evento")
     id_nodo     = data.get("id_nodo")
 
     if not uid:
         return jsonify({"error": "UID no proporcionado"}), 400
 
-    # ── 1. Verificar modo de emergencia ──────────────────────
+    # ── 1. Verificar emergencia activa ───────────────────────
     emergencia_activa, tipo_emergencia = _hay_emergencia_activa()
 
     if emergencia_activa:
-        # Siempre bloquear todo durante emergencia activa
         return jsonify({
             "permitido": False,
             "motivo": f"Emergencia activa — acceso bloqueado ({tipo_emergencia})",
             "emergencia": True,
-            "buzzer": True        # señal para que el ESP32 active el buzzer
+            "buzzer": True
         })
 
-    # ── 2. Verificar modo de acceso (control manual) ─────────
+    # ── 2. Verificar modo de acceso manual ───────────────────
     modo = _get_modo_acceso()
 
     if modo == "bloqueo_total":
@@ -85,25 +84,26 @@ def verificar():
             "buzzer": False
         })
 
-    # ── 3. Verificar tarjeta ──────────────────────────────────
+    # ── 3. Verificar tarjeta ─────────────────────────────────
     conn, cur = get_cursor()
 
     try:
         cur.execute("""
-        SELECT t.id_tarjeta, u.nombre, u.numero_control
-        FROM tarjeta_nfc t
-        JOIN usuario u ON u.id_usuario = t.id_usuario
-        WHERE t.uid_rfid = %s
-        AND t.activa = 1
+            SELECT t.id_tarjeta, u.nombre, u.numero_control
+            FROM tarjeta_nfc t
+            JOIN usuario u ON u.id_usuario = t.id_usuario
+            WHERE t.uid_rfid = %s
+            AND t.activa = 1
         """, (uid,))
 
         tarjeta = cur.fetchone()
 
         if not tarjeta:
+            # Tarjeta no registrada — guardar como denegado con id_tarjeta NULL
             cur.execute("""
-            INSERT INTO registro_acceso
-            (id_nodo, tipo_evento, resultado, motivo_denegado, timestamp)
-            VALUES (%s, %s, 'denegado', 'Tarjeta no registrada', NOW())
+                INSERT INTO registro_acceso
+                (id_tarjeta, id_nodo, tipo_evento, resultado, motivo_denegado, timestamp)
+                VALUES (NULL, %s, %s, 'denegado', 'Tarjeta no registrada', NOW())
             """, (id_nodo, tipo_evento))
             conn.commit()
 
@@ -117,12 +117,12 @@ def verificar():
         nombre     = tarjeta["nombre"]
         control    = tarjeta["numero_control"]
 
+        # Tarjeta valida — guardar como permitido
         cur.execute("""
-        INSERT INTO registro_acceso
-        (id_tarjeta, id_nodo, tipo_evento, resultado, timestamp)
-        VALUES (%s, %s, %s, 'permitido', NOW())
+            INSERT INTO registro_acceso
+            (id_tarjeta, id_nodo, tipo_evento, resultado, timestamp)
+            VALUES (%s, %s, %s, 'permitido', NOW())
         """, (id_tarjeta, id_nodo, tipo_evento))
-
         conn.commit()
 
         return jsonify({
