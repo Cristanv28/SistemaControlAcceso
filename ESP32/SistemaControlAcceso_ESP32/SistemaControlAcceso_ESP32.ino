@@ -18,7 +18,6 @@
 
 #define LED_VERDE   33
 #define LED_ROJO    32
-#define LED_NARANJA 25
 #define BUZZER      13
 
 #define SERVO_ENTRADA_PIN 26
@@ -33,47 +32,48 @@ MFRC522 rfid2(SS_PIN_2, RST_PIN_2);
 Servo servoEntrada;
 Servo servoSalida;
 
-String estadoEmergencia = "";
+// 🔥 Anti-duplicados
+String ultimoUID = "";
+unsigned long ultimoTiempoUID = 0;
+#define BLOQUEO_UID 3000
+
+// 🔥 Cache modo registro
+bool modoRegistro = false;
+unsigned long ultimoCheck = 0;
+#define INTERVALO_CHECK 4000
+
+// 🔥 Heartbeat
 unsigned long ultimoHeartbeat = 0;
 #define INTERVALO_HEARTBEAT 30000
 
+// ─────────────────────────────
+
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   SPI.begin();
+
   rfid1.PCD_Init();
   rfid2.PCD_Init();
 
-  pinMode(LED_VERDE,   OUTPUT);
-  pinMode(LED_ROJO,    OUTPUT);
-  pinMode(LED_NARANJA, OUTPUT);
+  pinMode(LED_VERDE, OUTPUT);
+  pinMode(LED_ROJO, OUTPUT);
 
   servoEntrada.attach(SERVO_ENTRADA_PIN);
   servoSalida.attach(SERVO_SALIDA_PIN);
+
   servoEntrada.write(SERVO_CERRADO);
   servoSalida.write(SERVO_CERRADO);
 
-  digitalWrite(LED_ROJO, HIGH);
-  delay(300);
-  digitalWrite(LED_ROJO, LOW);
-
-  Serial.println("Conectando a WiFi...");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+    delay(300);
     Serial.print(".");
   }
-  Serial.println("\nWiFi conectado");
-  Serial.println("IP: " + WiFi.localIP().toString());
 
-  for (int i = 0; i < 3; i++) {
-    digitalWrite(LED_VERDE, HIGH);
-    delay(200);
-    digitalWrite(LED_VERDE, LOW);
-    delay(200);
-  }
-
-  enviarHeartbeat();
+  Serial.println("\nWiFi OK");
 }
+
+// ─────────────────────────────
 
 String leerUID(MFRC522 &rfid) {
   String uid = "";
@@ -85,184 +85,201 @@ String leerUID(MFRC522 &rfid) {
   return uid;
 }
 
-void enviarHeartbeat() {
-  if (WiFi.status() != WL_CONNECTED) return;
+// ─────────────────────────────
+// 🔥 Anti-duplicado
+
+bool esDuplicado(String uid) {
+  if (uid == ultimoUID && (millis() - ultimoTiempoUID < BLOQUEO_UID)) {
+    return true;
+  }
+
+  ultimoUID = uid;
+  ultimoTiempoUID = millis();
+  return false;
+}
+
+// ─────────────────────────────
+// 🔥 Cache modo registro
+
+bool obtenerModoRegistro() {
+  if (millis() - ultimoCheck < INTERVALO_CHECK) {
+    return modoRegistro;
+  }
+
+  ultimoCheck = millis();
 
   HTTPClient http;
-  http.begin(String(SERVER_URL) + "/nodo/heartbeat");
+  http.begin(String(SERVER_URL) + "/tarjetas/modo-registro");
+
+  int code = http.GET();
+
+  if (code == 200) {
+    StaticJsonDocument<200> doc;
+    deserializeJson(doc, http.getString());
+    modoRegistro = doc["activo"];
+  }
+
+  http.end();
+  return modoRegistro;
+}
+
+// ─────────────────────────────
+// 🔥 Registro rápido
+
+void registrarUID(String uid) {
+
+  tone(BUZZER, 1200, 50); // feedback inmediato
+
+  HTTPClient http;
+  http.begin(String(SERVER_URL) + "/tarjetas/registrar-uid");
   http.addHeader("Content-Type", "application/json");
 
   StaticJsonDocument<100> doc;
-  doc["id_nodo"]  = ID_NODO;
-  doc["ip_local"] = WiFi.localIP().toString();
+  doc["uid_rfid"] = uid;
+
   String body;
   serializeJson(doc, body);
 
   int code = http.POST(body);
+
   if (code == 200) {
-    String resp = http.getString();
-    StaticJsonDocument<200> res;
-    deserializeJson(res, resp);
-    estadoEmergencia = res["emergencia"].as<String>();
-    Serial.println("Heartbeat OK — emergencia: " + estadoEmergencia);
-
-    bool hayEmergencia = (estadoEmergencia == "lockdown" || estadoEmergencia == "evacuacion");
-
-    if (!hayEmergencia) {
-      digitalWrite(LED_NARANJA, LOW);
-      digitalWrite(LED_ROJO, LOW);
-      digitalWrite(LED_VERDE, LOW);
-      servoEntrada.write(SERVO_CERRADO);
-      servoSalida.write(SERVO_CERRADO);
-    }
+    digitalWrite(LED_VERDE, HIGH);
+    delay(300);
+    digitalWrite(LED_VERDE, LOW);
+  } else {
+    errorServidor();
   }
+
   http.end();
 }
 
-void verificarAcceso(String uid, String tipoEvento) {
-  Serial.println("─────────────────────────");
-  Serial.println("UID: " + uid);
-  Serial.println("Evento: " + tipoEvento);
+// ─────────────────────────────
+// 🔥 Acceso optimizado
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Sin WiFi");
-    errorSinWifi();
-    return;
-  }
+void verificarAcceso(String uid, String tipo) {
+
+  tone(BUZZER, 1000, 50); // respuesta inmediata
 
   HTTPClient http;
   http.begin(String(SERVER_URL) + "/acceso/verificar");
   http.addHeader("Content-Type", "application/json");
 
-  StaticJsonDocument<200> doc;
-  doc["uid_rfid"]    = uid;
-  doc["tipo_evento"] = tipoEvento;
-  doc["id_nodo"]     = ID_NODO;
+  StaticJsonDocument<150> doc;
+  doc["uid_rfid"] = uid;
+  doc["tipo_evento"] = tipo;
+  doc["id_nodo"] = ID_NODO;
+
   String body;
   serializeJson(doc, body);
 
-  int httpCode = http.POST(body);
-  Serial.println("HTTP Codigo: " + String(httpCode));
+  int code = http.POST(body);
 
-  if (httpCode == 200) {
-    String response = http.getString();
-    Serial.println("Respuesta: " + response);
-
+  if (code == 200) {
     StaticJsonDocument<200> res;
-    deserializeJson(res, response);
-    bool permitido = res["permitido"];
+    deserializeJson(res, http.getString());
 
-    if (permitido) {
-      String nombre  = res["nombre"].as<String>();
-      String control = res["numero_control"].as<String>();
-      Serial.println("Permitido: " + nombre + " (" + control + ")");
-      accesoPermitido(tipoEvento);
+    if (res["permitido"]) {
+      accesoPermitido(tipo);
     } else {
-      String motivo = res["motivo"].as<String>();
-      Serial.println("Denegado: " + motivo);
       accesoDenegado();
     }
   } else {
-    Serial.println("Error servidor: " + String(httpCode));
     errorServidor();
   }
+
   http.end();
 }
 
-void accesoPermitido(String tipoEvento) {
-  digitalWrite(LED_VERDE, HIGH);
-  tone(BUZZER, 1000, 200);
+// ─────────────────────────────
 
-  if (tipoEvento == "entrada") {
+void accesoPermitido(String tipo) {
+
+  digitalWrite(LED_VERDE, HIGH);
+
+  if (tipo == "entrada") {
     servoEntrada.write(SERVO_ABIERTO);
   } else {
     servoSalida.write(SERVO_ABIERTO);
   }
 
-  delay(1500);
+  delay(800);
 
-  if (tipoEvento == "entrada") {
-    servoEntrada.write(SERVO_CERRADO);
-  } else {
-    servoSalida.write(SERVO_CERRADO);
-  }
+  servoEntrada.write(SERVO_CERRADO);
+  servoSalida.write(SERVO_CERRADO);
 
   digitalWrite(LED_VERDE, LOW);
 }
 
+// ─────────────────────────────
+
 void accesoDenegado() {
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 2; i++) {
     digitalWrite(LED_ROJO, HIGH);
-    tone(BUZZER, 300, 150);
-    delay(300);
+    tone(BUZZER, 300, 100);
+    delay(200);
     digitalWrite(LED_ROJO, LOW);
-    delay(150);
+    delay(100);
   }
 }
 
 void errorServidor() {
   digitalWrite(LED_ROJO, HIGH);
-  tone(BUZZER, 200, 1000);
-  delay(1000);
+  tone(BUZZER, 200, 500);
+  delay(500);
   digitalWrite(LED_ROJO, LOW);
 }
 
-void errorSinWifi() {
-  for (int i = 0; i < 5; i++) {
-    digitalWrite(LED_ROJO, HIGH);
-    delay(100);
-    digitalWrite(LED_ROJO, LOW);
-    delay(100);
-  }
+// ─────────────────────────────
+
+void enviarHeartbeat() {
+  HTTPClient http;
+  http.begin(String(SERVER_URL) + "/nodo/heartbeat");
+
+  StaticJsonDocument<100> doc;
+  doc["id_nodo"] = ID_NODO;
+
+  String body;
+  serializeJson(doc, body);
+
+  http.POST(body);
+  http.end();
 }
 
-void manejarEmergencia() {
-  if (estadoEmergencia == "lockdown") {
-    digitalWrite(LED_VERDE, LOW);
-    digitalWrite(LED_NARANJA, HIGH);
-    digitalWrite(LED_ROJO, HIGH);
-    tone(BUZZER, 800, 100);
-    delay(150);
-    digitalWrite(LED_NARANJA, LOW);
-    digitalWrite(LED_ROJO, LOW);
-    delay(150);
-  } else if (estadoEmergencia == "evacuacion") {
-    digitalWrite(LED_VERDE, LOW);
-    digitalWrite(LED_ROJO, LOW);
-    digitalWrite(LED_NARANJA, HIGH);
-    tone(BUZZER, 1200, 100);
-    delay(150);
-    digitalWrite(LED_NARANJA, LOW);
-    delay(150);
-    servoSalida.write(SERVO_ABIERTO);
-    servoEntrada.write(SERVO_CERRADO);
-  }
-}
+// ─────────────────────────────
 
 void loop() {
-  if (millis() - ultimoHeartbeat >= INTERVALO_HEARTBEAT) {
+
+  // Heartbeat
+  if (millis() - ultimoHeartbeat > INTERVALO_HEARTBEAT) {
     enviarHeartbeat();
     ultimoHeartbeat = millis();
   }
 
-  if (estadoEmergencia == "lockdown" || estadoEmergencia == "evacuacion") {
-    manejarEmergencia();
-    return;
-  }
-
+  // Entrada
   if (rfid1.PICC_IsNewCardPresent() && rfid1.PICC_ReadCardSerial()) {
+
     String uid = leerUID(rfid1);
-    verificarAcceso(uid, "entrada");
-    rfid1.PICC_HaltA();
-    rfid1.PCD_StopCrypto1();
-    delay(2000);
+
+    if (esDuplicado(uid)) return;
+
+    if (obtenerModoRegistro()) {
+      registrarUID(uid);
+    } else {
+      verificarAcceso(uid, "entrada");
+    }
   }
 
+  // Salida
   if (rfid2.PICC_IsNewCardPresent() && rfid2.PICC_ReadCardSerial()) {
+
     String uid = leerUID(rfid2);
-    verificarAcceso(uid, "salida");
-    rfid2.PICC_HaltA();
-    rfid2.PCD_StopCrypto1();
-    delay(2000);
+
+    if (esDuplicado(uid)) return;
+
+    if (obtenerModoRegistro()) {
+      registrarUID(uid);
+    } else {
+      verificarAcceso(uid, "salida");
+    }
   }
 }
