@@ -5,8 +5,8 @@
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
 
-#define WIFI_SSID     "MEGACABLE-3326_2.4G"
-#define WIFI_PASSWORD "Nolas1128C.@"
+#define WIFI_SSID     "ZTE Axon 70"
+#define WIFI_PASSWORD "Nolas1128."
 
 #define SERVER_URL "https://acceso-universitario-api-production.up.railway.app"
 #define ID_NODO 1
@@ -32,21 +32,16 @@ MFRC522 rfid2(SS_PIN_2, RST_PIN_2);
 Servo servoEntrada;
 Servo servoSalida;
 
-// 🔥 Anti-duplicados
 String ultimoUID = "";
 unsigned long ultimoTiempoUID = 0;
 #define BLOQUEO_UID 3000
 
-// 🔥 Cache modo registro
 bool modoRegistro = false;
 unsigned long ultimoCheck = 0;
 #define INTERVALO_CHECK 4000
 
-// 🔥 Heartbeat
 unsigned long ultimoHeartbeat = 0;
 #define INTERVALO_HEARTBEAT 30000
-
-// ─────────────────────────────
 
 void setup() {
   Serial.begin(115200);
@@ -85,9 +80,6 @@ String leerUID(MFRC522 &rfid) {
   return uid;
 }
 
-// ─────────────────────────────
-// 🔥 Anti-duplicado
-
 bool esDuplicado(String uid) {
   if (uid == ultimoUID && (millis() - ultimoTiempoUID < BLOQUEO_UID)) {
     return true;
@@ -98,8 +90,6 @@ bool esDuplicado(String uid) {
   return false;
 }
 
-// ─────────────────────────────
-// 🔥 Cache modo registro
 
 bool obtenerModoRegistro() {
   if (millis() - ultimoCheck < INTERVALO_CHECK) {
@@ -123,8 +113,6 @@ bool obtenerModoRegistro() {
   return modoRegistro;
 }
 
-// ─────────────────────────────
-// 🔥 Registro rápido
 
 void registrarUID(String uid) {
 
@@ -152,9 +140,6 @@ void registrarUID(String uid) {
 
   http.end();
 }
-
-// ─────────────────────────────
-// 🔥 Acceso optimizado
 
 void verificarAcceso(String uid, String tipo) {
 
